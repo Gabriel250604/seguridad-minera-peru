@@ -2,7 +2,7 @@
 
 Análisis de los accidentes mortales registrados en la minería peruana entre 2002 y 2021, desde el dato crudo publicado por el MINEM hasta un tablero de Business Intelligence.
 
-> **Estado del proyecto:** Fases 0 a 2 completadas. Pendiente el modelado en PostgreSQL y el tablero.
+> **Estado del proyecto:** Fases 0 a 3 completadas. Pendiente el tablero en Power BI.
 
 ## Contexto
 
@@ -115,11 +115,32 @@ La fuente presenta además dos inconsistencias de escritura: `EXPOSICIÓN A, O C
 
 19 registros, el 2.1% del total, presentan una fecha de fallecimiento anterior a la del accidente. Se conserva la fila, porque corresponde a una víctima real, se deja nulo el campo `DIAS_HASTA_FALLECIMIENTO` y se marca con la bandera `FECHA_INCONSISTENTE`. El promedio de días hasta el fallecimiento se calcula en consecuencia sobre 882 casos.
 
+## Modelo de datos
+
+El CSV limpio se carga en PostgreSQL bajo un esquema en estrella con cuatro dimensiones y una tabla de hechos.
+
+| Tabla | Filas | Contenido |
+|---|---:|---|
+| `dim_empresa` | 154 | Titulares mineros |
+| `dim_unidad` | 248 | Unidades con su ubicación política |
+| `dim_tipo` | 39 | Tipos de accidente y su familia |
+| `dim_tiempo` | 7305 | Un día por cada fecha entre 2002 y 2021 |
+| `fact_accidente` | 901 | Una fila por víctima |
+
+`dim_tiempo` se genera con `generate_series` en el propio DDL, de modo que cubre el periodo completo sin huecos aunque no haya accidentes en esas fechas. Una tabla de fechas incompleta invalida los cálculos de inteligencia temporal en el tablero.
+
+La clave de `dim_unidad` es la combinación de unidad y ubicación, no el nombre de la unidad. El dataset contiene dos unidades distintas llamadas SAN CRISTOBAL, una en Yauli (Junín) y otra en Cayllona (Arequipa): usar el nombre como clave las habría fusionado en un solo registro y distorsionado los conteos por unidad.
+
+El esquema está en `sql/01_schema.sql`, escrito a mano con llaves primarias, llaves foráneas y tipos explícitos. La carga se ejecuta con `src/carga.py`, que lee las credenciales desde `.env` y es idempotente: trunca las tablas antes de insertar.
+
+Las consultas de `sql/02_validacion.sql` comparan los totales cargados contra el CSV limpio y verifican que no existan registros huérfanos en ninguna de las tres llaves foráneas.
+
 ## Hallazgos preliminares
 
 - **Subregistro entre 2017 y 2019.** La serie se mantiene entre 47 y 69 registros anuales desde 2002 hasta 2016, cae a 6 en 2017 y 4 en 2018, no presenta ningún registro en 2019, y vuelve a 73 en 2020. La magnitud del salto descarta una mejora real en la seguridad y apunta a un vacío de reporte.
 - **Concentración por familia de accidente.** Tras agrupar los 39 tipos originales en 11 familias, el desprendimiento de rocas y mineral concentra 337 de las 901 víctimas, el 37% del total y casi tres veces más que la segunda familia. Considerado como tipo individual, el desprendimiento de rocas explica por sí solo 240 víctimas.
 - **Los siniestros de víctimas múltiples son minoría pero pesan.** Las 901 víctimas se distribuyen en 784 eventos: 74 eventos concentraron más de una víctima y explican 191 fallecimientos, el 21% del total.
+- **El 88% de las víctimas fallece en el acto.** De los 882 registros con diferencia de fechas válida, 779 presentan cero días entre el accidente y el fallecimiento. El promedio de 5.17 días está determinado por unos pocos casos con atención médica prolongada y no describe la situación típica.
 - **Inconsistencias en las fechas.** 19 registros presentan fecha de fallecimiento anterior a la del accidente, concentrados en 2020.
 
 ## Limitaciones conocidas
