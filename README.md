@@ -2,7 +2,7 @@
 
 Análisis de los accidentes mortales registrados en la minería peruana entre 2002 y 2021, desde el dato crudo publicado por el MINEM hasta un tablero de Business Intelligence.
 
-> **Estado del proyecto:** Fase 0 completada. Fase 1, exploración de datos, en curso.
+> **Estado del proyecto:** Fases 0 a 2 completadas. Pendiente el modelado en PostgreSQL y el tablero.
 
 ## Contexto
 
@@ -85,11 +85,42 @@ La alternativa descartada, eliminar los duplicados, queda documentada como líne
 
 `CATEGORIA` presenta 68 nulos, equivalentes al 7.5% del total. Se asignan a la etiqueta "Sin categoría" en lugar de descartar los registros, ya que el resto de su información es válida. Las columnas de ubicación presentan 2 nulos correspondientes a los mismos dos registros.
 
+### Agrupación de tipos de accidente
+
+Los 39 valores originales de `TIPO_ACCIDENTE` se agrupan en 11 familias según el agente que produce la lesión. El mapeo vive en `src/mapeo_familias.py`, separado del script de limpieza, para que pueda auditarse sin leer el pipeline.
+
+| Familia | Víctimas |
+|---|---:|
+| Desprendimiento de rocas y mineral | 337 |
+| Tránsito y transporte | 124 |
+| Caída de personas | 92 |
+| Maquinaria y atrapamiento | 90 |
+| Objetos y materiales | 76 |
+| Atmósfera y sustancias peligrosas | 75 |
+| Energía eléctrica | 35 |
+| Otros | 27 |
+| Explosivos | 26 |
+| Fenómenos naturales | 14 |
+| Esfuerzos físicos | 5 |
+
+Tres casos requirieron criterio:
+
+- `EXPOSICIÓN A, O CONTACTO CON RADIACIONES` se unifica con `INTOXICACION-ASFIXIA-ABSORCION-RADIACIONES`, ya que el segundo tipo comprende explícitamente las radiaciones y el dataset no ofrece ningún elemento que permita distinguirlos.
+- `OTROS TIPOS - DESCARGA ELECTRICA POR RAYO` se clasifica como fenómeno natural y no como energía eléctrica, porque su control corresponde a protocolos de tormenta y no a procedimientos sobre instalaciones eléctricas.
+- `OTROS TIPOS - CAUSA NATURAL` se asigna a Otros, dado que en registros de seguridad minera designa fallecimientos por causa médica y no eventos de la naturaleza.
+
+La fuente presenta además dos inconsistencias de escritura: `EXPOSICIÓN A, O CONTACTO CON, LA CORRIENTE ELÉCTRICA`, con un único caso, es el mismo tipo que `EXPOSICIÓN A, O CONTACTO CON ENERGÍA ELÉCTRICA`, y `OTRO TIPOS - CAMPANEO` omite la letra ese del prefijo. Ambos se mapean a la familia que les corresponde.
+
+### Fechas de fallecimiento anteriores al accidente
+
+19 registros, el 2.1% del total, presentan una fecha de fallecimiento anterior a la del accidente. Se conserva la fila, porque corresponde a una víctima real, se deja nulo el campo `DIAS_HASTA_FALLECIMIENTO` y se marca con la bandera `FECHA_INCONSISTENTE`. El promedio de días hasta el fallecimiento se calcula en consecuencia sobre 882 casos.
+
 ## Hallazgos preliminares
 
 - **Subregistro entre 2017 y 2019.** La serie se mantiene entre 47 y 69 registros anuales desde 2002 hasta 2016, cae a 6 en 2017 y 4 en 2018, no presenta ningún registro en 2019, y vuelve a 73 en 2020. La magnitud del salto descarta una mejora real en la seguridad y apunta a un vacío de reporte.
-- **Concentración por tipo de accidente.** El desprendimiento de rocas explica 240 de las 901 víctimas, más del doble que el segundo tipo más frecuente.
-- **Inconsistencias en las fechas de 2020.** Se detectaron registros con fecha de fallecimiento anterior a la del accidente, concentrados en ese año.
+- **Concentración por familia de accidente.** Tras agrupar los 39 tipos originales en 11 familias, el desprendimiento de rocas y mineral concentra 337 de las 901 víctimas, el 37% del total y casi tres veces más que la segunda familia. Considerado como tipo individual, el desprendimiento de rocas explica por sí solo 240 víctimas.
+- **Los siniestros de víctimas múltiples son minoría pero pesan.** Las 901 víctimas se distribuyen en 784 eventos: 74 eventos concentraron más de una víctima y explican 191 fallecimientos, el 21% del total.
+- **Inconsistencias en las fechas.** 19 registros presentan fecha de fallecimiento anterior a la del accidente, concentrados en 2020.
 
 ## Limitaciones conocidas
 
