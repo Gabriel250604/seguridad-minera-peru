@@ -1,28 +1,21 @@
-# Entorno virtual
 .venv/
+.venv-*/
 venv/
 env/
 
-# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .ipynb_checkpoints/
 
-# Credenciales — nunca subir
 .env
 
-# Salidas del pipeline (se regeneran corriendo el script)
 data/processed/*
 !data/processed/.gitkeep
 
-# Power BI
 *.pbix.bak
 ~$*.pbix
 
-# Sistema
 Thumbs.db
 desktop.ini
 .DS_Store
-# Entornos virtuales sobrantes
-.venv-*/
