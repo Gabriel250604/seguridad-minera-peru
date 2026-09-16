@@ -2,7 +2,7 @@
 
 Análisis de los accidentes mortales registrados en la minería peruana entre 2002 y 2021, desde el dato crudo publicado por el MINEM hasta un tablero de Business Intelligence.
 
-> **Estado del proyecto:** Fases 0 a 3 completadas. Pendiente el tablero en Power BI.
+![Panorama general](docs/01_panorama.png)
 
 ## Contexto
 
@@ -35,8 +35,8 @@ El Ministerio de Energía y Minas publica el registro de accidentes mortales ocu
 |---|---|---|
 | Extracción | pandas | DataFrame crudo |
 | Limpieza y transformación | pandas | `data/processed/accidentes_limpio.csv` |
-| Modelado | PostgreSQL | Modelo estrella: 4 dimensiones y 1 tabla de hechos |
-| Visualización | Power BI | Tablero de 4 páginas |
+| Modelado | PostgreSQL 16 | Modelo estrella: 4 dimensiones y 1 tabla de hechos |
+| Visualización | Power BI | Tablero de 4 páginas, 15 medidas DAX |
 
 ## Estructura del repositorio
 
@@ -46,15 +46,27 @@ El Ministerio de Energía y Minas publica el registro de accidentes mortales ocu
     src/              Scripts del pipeline
     sql/              Esquema y consultas de validación
     powerbi/          Archivo .pbix
-    docs/             Capturas y notas
+    docs/             Capturas del tablero y PDF exportado
 
 ## Cómo reproducirlo
+
+Requiere Python 3.13, PostgreSQL 16 y Power BI Desktop.
 
     python -m venv .venv
     .venv\Scripts\activate
     pip install -r requirements.txt
 
-Luego copiar `.env.example` como `.env` y completar las credenciales de la base de datos local.
+Copiar `.env.example` como `.env` y completar las credenciales locales. Luego:
+
+    psql -U postgres -c "CREATE DATABASE seguridad_minera;"
+    psql -U postgres -d seguridad_minera -f sql/01_schema.sql
+    cd src
+    python limpieza.py
+    python carga.py
+    cd ..
+    psql -U postgres -d seguridad_minera -f sql/02_validacion.sql
+
+Las consultas de validación deben arrojar 901 víctimas, 784 eventos, 11 familias, 7305 días en la tabla de fechas y cero registros huérfanos en las tres llaves foráneas.
 
 ## Decisiones de tratamiento del dato
 
@@ -83,7 +95,9 @@ La alternativa descartada, eliminar los duplicados, queda documentada como líne
 
 ### Valores nulos
 
-`CATEGORIA` presenta 68 nulos, equivalentes al 7.5% del total. Se asignan a la etiqueta "Sin categoría" en lugar de descartar los registros, ya que el resto de su información es válida. Las columnas de ubicación presentan 2 nulos correspondientes a los mismos dos registros.
+`CATEGORIA` presenta 68 nulos, equivalentes al 7.5% del total. Se asignan a la etiqueta "No informado", deliberadamente distinta de "Sin Categoría", que es una clasificación que la propia fuente declara para otros 25 registros. Confundir ambas habría fusionado un dato faltante con un dato declarado.
+
+Las columnas de ubicación presentan 2 nulos correspondientes a los mismos dos registros, etiquetados como "NO ESPECIFICADO". Se conservan en los totales y se excluyen únicamente del mapa.
 
 ### Agrupación de tipos de accidente
 
@@ -113,11 +127,15 @@ La fuente presenta además dos inconsistencias de escritura: `EXPOSICIÓN A, O C
 
 ### Fechas de fallecimiento anteriores al accidente
 
-19 registros, el 2.1% del total, presentan una fecha de fallecimiento anterior a la del accidente. Se conserva la fila, porque corresponde a una víctima real, se deja nulo el campo `DIAS_HASTA_FALLECIMIENTO` y se marca con la bandera `FECHA_INCONSISTENTE`. El promedio de días hasta el fallecimiento se calcula en consecuencia sobre 882 casos.
+19 registros, el 2.1% del total, presentan una fecha de fallecimiento anterior a la del accidente. Se conserva la fila, porque corresponde a una víctima real, se deja nulo el campo `DIAS_HASTA_FALLECIMIENTO` y se marca con la bandera `FECHA_INCONSISTENTE`. El cálculo de días se realiza en consecuencia sobre 882 casos.
+
+### Valor extremo en el tiempo hasta el fallecimiento
+
+Un registro presenta 3348 días entre el accidente y el fallecimiento, más de nueve años. Por sí solo eleva el promedio general de 1.37 a 5.17 días, y el de la familia Caída de personas de 7.14 a 44.67.
+
+No se elimina, porque no existe evidencia concluyente de que sea un error de captura. En su lugar se reportan tres métricas en paralelo: promedio, promedio excluyendo casos superiores a un año, y mediana. La mediana resulta ser cero en todas las familias.
 
 ## Modelo de datos
-
-El CSV limpio se carga en PostgreSQL bajo un esquema en estrella con cuatro dimensiones y una tabla de hechos.
 
 | Tabla | Filas | Contenido |
 |---|---:|---|
@@ -135,20 +153,46 @@ El esquema está en `sql/01_schema.sql`, escrito a mano con llaves primarias, ll
 
 Las consultas de `sql/02_validacion.sql` comparan los totales cargados contra el CSV limpio y verifican que no existan registros huérfanos en ninguna de las tres llaves foráneas.
 
-## Hallazgos preliminares
+## El tablero
 
-- **Subregistro entre 2017 y 2019.** La serie se mantiene entre 47 y 69 registros anuales desde 2002 hasta 2016, cae a 6 en 2017 y 4 en 2018, no presenta ningún registro en 2019, y vuelve a 73 en 2020. La magnitud del salto descarta una mejora real en la seguridad y apunta a un vacío de reporte.
-- **Concentración por familia de accidente.** Tras agrupar los 39 tipos originales en 11 familias, el desprendimiento de rocas y mineral concentra 337 de las 901 víctimas, el 37% del total y casi tres veces más que la segunda familia. Considerado como tipo individual, el desprendimiento de rocas explica por sí solo 240 víctimas.
-- **Los siniestros de víctimas múltiples son minoría pero pesan.** Las 901 víctimas se distribuyen en 784 eventos: 74 eventos concentraron más de una víctima y explican 191 fallecimientos, el 21% del total.
-- **El 88% de las víctimas fallece en el acto.** De los 882 registros con diferencia de fechas válida, 779 presentan cero días entre el accidente y el fallecimiento. El promedio de 5.17 días está determinado por unos pocos casos con atención médica prolongada y no describe la situación típica.
-- **Inconsistencias en las fechas.** 19 registros presentan fecha de fallecimiento anterior a la del accidente, concentrados en 2020.
+Cuatro páginas construidas sobre 15 medidas DAX. El archivo está en `powerbi/seguridad_minera.pbix` y la exportación completa en `docs/seguridad_minera.pdf`.
+
+### Tipos de accidente
+
+![Tipos de accidente](docs/02_tipos_accidente.png)
+
+Diagrama de Pareto por familia y una matriz que cruza frecuencia con letalidad: porcentaje de muerte inmediata, promedio de días hasta el fallecimiento, promedio sin casos extremos y mediana.
+
+### Geografía
+
+![Geografía](docs/03_geografia.png)
+
+Distribución por departamento, titular y unidad minera, con la advertencia expresa de que los conteos no están normalizados por exposición.
+
+### Calidad del dato
+
+![Calidad del dato](docs/04_calidad_dato.png)
+
+Cobertura de registros año por año, incidencias detectadas y el efecto del valor extremo sobre el promedio. La tabla de cobertura muestra 2019 con cero registros, que es el modo más claro de exhibir el vacío de la fuente.
+
+## Hallazgos
+
+**El 88% de las víctimas fallece el mismo día del accidente.** De los 882 registros con diferencia de fechas válida, 779 presentan cero días entre el accidente y el fallecimiento. La mediana es cero en las once familias sin excepción. En minería subterránea el margen de rescate es prácticamente inexistente.
+
+**El desprendimiento de rocas y mineral concentra el 37% de las víctimas.** 337 de 901, casi tres veces más que la segunda familia. Sumado a tránsito y transporte, y a caída de personas, las tres primeras familias explican más del 60% del total.
+
+**Los siniestros de víctimas múltiples son minoría pero pesan.** Las 901 víctimas se distribuyen en 784 eventos. 74 eventos concentraron más de una víctima y explican 191 fallecimientos, el 21% del total.
+
+**La concentración empresarial es moderada.** Las cinco empresas con más víctimas acumulan el 29.4% de los registros, en un universo de 154 titulares y 248 unidades mineras.
+
+**El periodo 2017 a 2019 presenta un subregistro evidente.** La serie promedia 55 víctimas anuales entre 2002 y 2016, cae a 6 en 2017 y 4 en 2018, y no registra ningún caso en 2019. En 2020 vuelve a 73. La magnitud del salto descarta una mejora real en la seguridad y apunta a un vacío en el reporte de la fuente.
 
 ## Limitaciones conocidas
 
 - El dataset no distingue entre trabajadores de empresas contratistas y de titulares mineros, por lo que no es posible analizar esa diferencia.
-- No existe un denominador de exposición, como horas trabajadas o número de trabajadores, por lo que no se pueden construir tasas de accidentabilidad comparables entre empresas. Cualquier conteo absoluto favorece a las operaciones grandes.
-- El periodo 2017 – 2019 presenta un subregistro evidente que se documenta en el análisis y se señala en el tablero.
-- Algunos registros de 2020 presentan fechas de fallecimiento anteriores a la del accidente, lo que afecta el cálculo de días transcurridos hasta el deceso en esos casos.
+- No existe un denominador de exposición, como horas trabajadas o número de trabajadores, por lo que no se pueden construir tasas de accidentabilidad comparables entre empresas. Cualquier conteo absoluto favorece a las operaciones de mayor tamaño, y así se advierte en la página de Geografía del tablero.
+- El periodo 2017 a 2019 presenta un subregistro que impide interpretar la serie temporal completa como una medición homogénea.
+- 19 registros presentan fechas inconsistentes que quedan excluidos del cálculo de días transcurridos.
 - El dataset no incluye identificador de persona, por lo que la distinción entre víctimas y eventos se infiere a partir de la combinación de campos descrita en la sección de decisiones.
 
 ## Autor
